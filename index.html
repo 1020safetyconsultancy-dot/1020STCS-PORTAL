@@ -1307,10 +1307,15 @@ async function cloudLoad(){
   if(!current)return;
   cloudStatus('','Loading secure online records…');
   try{
+    let localSnapshot=db;
     let rows=await api('/rest/v1/portal_records?select=id,record_type,owner_id,data&order=updated_at.asc');
     let fresh={participants:[],certificates:[],trainings:[],requests:[],payments:[],schedules:[]};
     (rows||[]).forEach(r=>{if(fresh[r.record_type]){let x=Object.assign({},r.data);x.id=x.id||r.id;if(r.owner_id)x.ownerId=r.owner_id;fresh[r.record_type].push(x)}});
-    db=fresh;localStorage.setItem(K,JSON.stringify(db));cloudReady=true;
+    let localCount=RECORD_TYPES.reduce((n,t)=>n+(localSnapshot[t]||[]).length,0);
+    if(!(rows||[]).length&&role()==='admin'&&localCount){
+      db=localSnapshot;cloudReady=true;await cloudWrite();
+    }else db=fresh;
+    localStorage.setItem(K,JSON.stringify(db));cloudReady=true;
     cloudStatus('online','Secure online database connected');render();
   }catch(err){console.error(err);cloudStatus('error','Online database error');alert('Could not load online records: '+err.message)}
 }
