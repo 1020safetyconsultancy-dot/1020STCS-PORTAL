@@ -290,7 +290,7 @@
   </div>
 </section>
 
-<section id="users" class="page"><div class="data-panel panel"><div class="toolbar"><input id="usq" class="search" placeholder="Search users..." oninput="render()"><button class="btn primary" onclick="userModal()">＋ Add User</button></div><table class="table"><thead><tr><th>NAME</th><th>USERNAME</th><th>ROLE</th><th>COMPANY</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody id="ut"></tbody></table></div></section>
+<section id="users" class="page"><div class="data-panel panel"><div class="toolbar"><input id="usq" class="search" placeholder="Search users..." oninput="render()"><button class="btn primary" onclick="userModal()">＋ Add User</button></div><table class="table"><thead><tr><th>NAME</th><th>EMAIL</th><th>ROLE</th><th>COMPANY</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody id="ut"></tbody></table></div></section>
 
 <section id="backup" class="page"><div class="panel settings" style="padding:22px"><h2>Backup & Restore</h2><div class="notice"><b>Your data is stored in this browser.</b><br>Export a backup regularly and keep it in a safe location.</div><button class="btn primary" onclick="backup()">⬇ Export Database</button> <label class="btn gray">⬆ Import Database<input hidden type="file" accept=".json" onchange="restore(event)"></label> <button class="btn red" onclick="clearDB()">🗑 Clear Database</button></div></section>
 
@@ -1398,6 +1398,66 @@ async function clearDB(){
   if(role()!=='admin')return;
   if(!confirm('Delete ALL online training, certificate, request, payment and schedule data? This cannot be undone without a backup.'))return;
   try{await api('/rest/v1/portal_records?id=not.is.null',{method:'DELETE',headers:{'Prefer':'return=minimal'}});db={participants:[],certificates:[],trainings:[],requests:[],payments:[],schedules:[]};localStorage.setItem(K,JSON.stringify(db));render();alert('Online database cleared.')}catch(err){alert(err.message)}
+}
+async function callUserAdmin(action,payload){
+  if(role()!=='admin')throw new Error('Administrator access required.');
+  if(!(await ensureAuth()))throw new Error('Your session has expired. Please sign in again.');
+  let r=await fetch(SUPABASE_URL+'/functions/v1/manage-portal-user',{
+    method:'POST',
+    headers:authHeaders(),
+    body:JSON.stringify(Object.assign({action},payload||{}))
+  });
+  let data=await r.json().catch(()=>({error:'Account operation failed.'}));
+  if(!r.ok)throw new Error(data.error||'Account operation failed.');
+  return data;
+}
+function userModal(id){
+  if(role()!=='admin')return alert('Administrator access required.');
+  let u=id?users.find(x=>x.id===id):null,isEdit=!!u;
+  modal(isEdit?'Edit Online User':'Add Online User','<form class="form" onsubmit="savePortalUser(event,'+(isEdit?("'"+esc(u.id)+"'"):'null')+')">'+
+    '<div class="grid">'+
+      '<div class="field"><label>Full Name *</label><input id="portalUserName" required value="'+esc(u?.name||'')+'"></div>'+
+      '<div class="field"><label>Email Address *</label><input id="portalUserEmail" type="email" required value="'+esc(u?.email||'')+'"></div>'+
+      '<div class="field"><label>Company / Organization</label><input id="portalUserCompany" value="'+esc(u?.company||'')+'"></div>'+
+      '<div class="field"><label>Contact Number</label><input id="portalUserContact" value="'+esc(u?.contact||'')+'"></div>'+
+      '<div class="field"><label>Account Role *</label><select id="portalUserRole">'+
+        '<option value="client" '+(u?.role==='client'?'selected':'')+'>Client</option>'+
+        '<option value="consultant" '+(u?.role==='consultant'?'selected':'')+'>Consultant</option>'+
+        '<option value="admin" '+(u?.role==='admin'?'selected':'')+'>Administrator</option>'+
+      '</select></div>'+
+      '<div class="field"><label>'+(isEdit?'New Password (optional)':'Temporary Password *')+'</label><input id="portalUserPassword" type="password" minlength="10" '+(isEdit?'':'required')+' placeholder="At least 10 characters"></div>'+
+    '</div>'+
+    '<div class="notice" style="margin-top:16px">'+(isEdit?'Leave the password blank to keep the current password.':'The account is confirmed immediately. Give the temporary password securely to the user.')+'</div>'+
+    '<div class="actions"><button type="button" class="btn gray" onclick="closeM()">Cancel</button><button class="btn primary">'+(isEdit?'Save Changes':'Create User')+'</button></div>'+
+  '</form>');
+}
+async function savePortalUser(e,id){
+  e.preventDefault();
+  let button=e.submitter;if(button){button.disabled=true;button.textContent=id?'Saving…':'Creating…'}
+  let payload={
+    name:$('portalUserName').value.trim(),
+    email:$('portalUserEmail').value.trim().toLowerCase(),
+    company:$('portalUserCompany').value.trim(),
+    contact:$('portalUserContact').value.trim(),
+    role:$('portalUserRole').value,
+    password:$('portalUserPassword').value
+  };
+  if(id)payload.user_id=id;
+  try{
+    await callUserAdmin(id?'update':'create',payload);
+    await loadProfile();closeM();render();
+    alert(id?'User account updated successfully.':'Online user created successfully.');
+  }catch(err){
+    alert(err.message);
+    if(button){button.disabled=false;button.textContent=id?'Save Changes':'Create User'}
+  }
+}
+async function toggleUser(id){
+  if(role()!=='admin')return;
+  let u=users.find(x=>x.id===id);if(!u)return;
+  let next=!u.active;
+  if(!confirm((next?'Activate ':'Deactivate ')+(u.name||u.email)+'?'))return;
+  try{await callUserAdmin('toggle',{user_id:id,active:next});await loadProfile();render();alert('User account '+(next?'activated.':'deactivated.'))}catch(err){alert(err.message)}
 }
 async function startPortal(){
   now();migrateCertificateServices();let ok=await restoreSession();
