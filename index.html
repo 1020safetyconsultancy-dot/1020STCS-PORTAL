@@ -871,10 +871,15 @@ rqService.addEventListener('change',()=>refreshAvailableDates());
 rqDate.addEventListener('change',selectScheduleFromDate);
 rqCount.addEventListener('change',renderParticipantForms);
 
-function requestAction(id,status){
-if(!can('admin','consultant'))return;
-let r=db.requests.find(x=>x.id==id);if(!r)return;
-if(status==='Approved' && r.status!=='Approved'){
+async function requestAction(id,status,button){
+if(!can('admin','consultant'))return alert('Administrator or consultant access required.');
+let r=db.requests.find(x=>x.id==id);if(!r)return alert('Request not found.');
+let previousStatus=r.status;
+if(button){button.disabled=true;button.textContent=status==='Approved'?'Approving…':'Rejecting…'}
+r.status=status;
+r.reviewedBy=current?.name||current?.username||'';
+r.reviewedAt=new Date().toISOString();
+if(status==='Approved' && previousStatus!=='Approved'){
   let items=requestParticipants(r);
   let client=users.find(u=>u.id===r.clientId)||{};
   let registered=(r.created||new Date().toISOString()).slice(0,10);
@@ -893,34 +898,24 @@ if(status==='Approved' && r.status!=='Approved'){
     }
   });
 }
-r.status=status;
-r.reviewedBy=current?.name||current?.username||'';
-r.reviewedAt=new Date().toISOString();
 syncScheduleBookings();
-save();
-if(status==='Approved'){
-  alert(`${r.count||r.participants?.length||0} participant(s) have been added to the Participants list. A congratulatory email will now be prepared.`);
-  sendApprovalEmail(r);
-}
-}
-function sendApprovalEmail(r){
-  let client=users.find(u=>u.id===r.clientId)||{};
-  let to=(client.email||r.clientEmail||'').trim();
-  if(!to){
-    alert('Registration approved, but no client email address is saved. Please add an email to the client profile before sending the congratulatory email.');
-    return;
+localStorage.setItem(K,JSON.stringify(db));render();
+try{
+  let rows=rowsFromDB().filter(row=>(row.record_type==='requests'&&row.id===String(r.id))||(row.record_type==='participants'&&row.data?.sourceRequestId===r.id));
+  for(let row of rows){
+    let filter='?record_type=eq.'+encodeURIComponent(row.record_type)+'&id=eq.'+encodeURIComponent(row.id);
+    let updated=await api('/rest/v1/portal_records'+filter,{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(row)});
+    if(!updated||!updated.length)await api('/rest/v1/portal_records',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify(row)});
   }
-  let service=r.service||r.type||'training registration';
-  let trainingDate=r.date?fmtDate(r.date):'the scheduled date';
-  let count=Number(r.count||r.participants?.length||0);
-  let clientName=r.clientName||client.name||'Client';
-  let company=r.company||client.company||'';
-  let subject=`Congratulations! Your ${service} Registration Has Been Approved`;
-  let body=`Dear ${clientName},\n\nCongratulations! We are pleased to inform you that your registration for ${service} has been APPROVED by 1020 Safety Training Consultancy Services.\n\nTraining / Service: ${service}\nSchedule: ${trainingDate}\nCompany: ${company||'—'}\nApproved Participants: ${count}\n\nYour participant slots are now confirmed. Please log in to the 1020 Safety Portal to review your approved registration and proceed with the applicable payment requirements.\n\nThank you for choosing 1020 Safety Training Consultancy Services. We look forward to having you in the training.\n\nCongratulations and see you soon!\n\n1020 Safety Training Consultancy Services`;
-  r.approvalEmailPreparedAt=new Date().toISOString();
-  r.approvalEmailTo=to;
-  save();
-  window.location.href=`mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  let check=await api('/rest/v1/portal_records?select=data&record_type=eq.requests&id=eq.'+encodeURIComponent(r.id));
+  if(!check?.length||check[0]?.data?.status!==status)throw new Error('The database did not confirm the new request status.');
+  closeM();cloudStatus('online','Saved securely online');
+  alert(status==='Approved'?`Request approved. ${r.count||r.participants?.length||0} participant(s) were added to the Participants list.`:'Request rejected.');
+}catch(err){
+  console.error(err);r.status=previousStatus;localStorage.setItem(K,JSON.stringify(db));render();cloudStatus('error','Online save failed');
+  alert('Request was not saved: '+err.message);
+  if(button){button.disabled=false;button.textContent=status==='Approved'?'Approve':'Reject'}
+}
 }
 function requestModal(id){
   let r=db.requests.find(x=>x.id==id);if(!r)return;
@@ -932,7 +927,7 @@ function requestModal(id){
     <p><b>Participants:</b> ${esc(r.count||'—')}</p>
     <h3 style="color:#174d3a;margin-top:18px">Participant Information</h3>
     ${participantDetailsHTML(r)}
-    <div class="actions"><button class="btn gray" onclick="closeM()">Close</button>${r.status==='Pending'?`<button class="btn primary" onclick="requestAction('${r.id}','Approved');closeM()">Approve & Prepare Congratulatory Email</button><button class="btn red" onclick="requestAction('${r.id}','Rejected');closeM()">Reject</button>`:`<span class="small">Reviewed by ${esc(r.reviewedBy||'—')}</span>`}</div>
+    <div class="actions"><button class="btn gray" onclick="closeM()">Close</button>${r.status==='Pending'?`<button class="btn primary" onclick="requestAction('${r.id}','Approved',this)">Approve</button><button class="btn red" onclick="requestAction('${r.id}','Rejected',this)">Reject</button>`:`<span class="small">Reviewed by ${esc(r.reviewedBy||'—')}</span>`}</div>
   </div>`)
 }
 
@@ -1318,7 +1313,7 @@ async function cloudLoad(){
       db=localSnapshot;cloudReady=true;await cloudWrite();
     }else db=fresh;
     localStorage.setItem(K,JSON.stringify(db));cloudReady=true;
-    cloudStatus('online','Secure online database connected • v2.2');render();
+    cloudStatus('online','Secure online database connected • v2.3');render();
   }catch(err){console.error(err);cloudStatus('error','Online database error');alert('Could not load online records: '+err.message)}
 }
 async function cloudWrite(){
