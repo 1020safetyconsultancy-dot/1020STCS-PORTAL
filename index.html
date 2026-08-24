@@ -338,6 +338,15 @@ const K='1020_safety_db_v2',UK='1020_safety_users_v2',SK='1020_safety_session_v2
 const $=id=>document.getElementById(id),eid=()=>Date.now()+Math.random().toString(16).slice(2);
 const esc=v=>String(v??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 let db=JSON.parse(localStorage.getItem(K)||'null')||{participants:[],certificates:[],trainings:[],requests:[]};db.payments=db.payments||[];db.schedules=db.schedules||[];
+function cacheDB(){
+  try{
+    let lightweight=JSON.stringify(db,(key,value)=>key==='photo'&&typeof value==='string'&&value.startsWith('data:image/')?'':value);
+    localStorage.setItem(K,lightweight);
+  }catch(err){
+    console.warn('Browser cache skipped; online data remains available.',err);
+    try{localStorage.removeItem(K)}catch(_){}
+  }
+}
 const SERVICE_CATALOG=[
  {name:'Mandatory Eight Hours Safety & Health (MESH)',price:'₱2,000',certificate:true},
  {name:'Construction Occupational Safety & Health (COSH)',price:'₱5,000',certificate:true},
@@ -358,7 +367,7 @@ function cloudStatus(mode,msg){
 }
 function cloudLoad(){cloudStatus('','Private device storage only');}
 function save(){
-  localStorage.setItem(K,JSON.stringify(db));
+  cacheDB();
   render();
 }
 
@@ -414,7 +423,7 @@ function syncApprovedRequests(){
       }
     });
   });
-  if(changed)localStorage.setItem(K,JSON.stringify(db));
+  if(changed)cacheDB();
 }
 function syncUser(){if(!current)return; $('topUser').textContent=current.name||current.username;$('topRole').textContent=current.role.toUpperCase();$('sideRole').textContent=current.role.toUpperCase();$('welcomeText').textContent=`Welcome back, ${current.name||current.username}!`;
 let sub=role()==='admin'?'You have full access to users, training records, certificates and reports.':role()==='consultant'?'Manage client requests, participants, trainings and certificates.':'View your company records, submit service requests and verify certificates.';
@@ -899,7 +908,7 @@ if(status==='Approved' && previousStatus!=='Approved'){
   });
 }
 syncScheduleBookings();
-localStorage.setItem(K,JSON.stringify(db));render();
+cacheDB();render();
 try{
   let rows=rowsFromDB().filter(row=>(row.record_type==='requests'&&row.id===String(r.id))||(row.record_type==='participants'&&row.data?.sourceRequestId===r.id));
   let saved=await callRecordAdmin(rows);
@@ -908,7 +917,7 @@ try{
   closeM();cloudStatus('online','Saved securely online');
   alert(status==='Approved'?`Request approved. ${r.count||r.participants?.length||0} participant(s) were added to the Participants list.`:'Request rejected.');
 }catch(err){
-  console.error(err);r.status=previousStatus;localStorage.setItem(K,JSON.stringify(db));render();cloudStatus('error','Online save failed');
+  console.error(err);r.status=previousStatus;cacheDB();render();cloudStatus('error','Online save failed');
   alert('Request was not saved: '+err.message);
   if(button){button.disabled=false;button.textContent=status==='Approved'?'Approve':'Reject'}
 }
@@ -1308,8 +1317,8 @@ async function cloudLoad(){
     if(!(rows||[]).length&&role()==='admin'&&localCount){
       db=localSnapshot;cloudReady=true;await cloudWrite();
     }else db=fresh;
-    localStorage.setItem(K,JSON.stringify(db));cloudReady=true;
-    cloudStatus('online','Secure online database connected • v2.4');render();
+    cacheDB();cloudReady=true;
+    cloudStatus('online','Secure online database connected • v2.5');render();
   }catch(err){console.error(err);cloudStatus('error','Online database error');alert('Could not load online records: '+err.message)}
 }
 async function cloudWrite(){
@@ -1325,12 +1334,12 @@ async function cloudWrite(){
         if(!updated||!updated.length)await api('/rest/v1/portal_records',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify(row)});
       }
     }else if(rows.length)await callRecordAdmin(rows);
-    localStorage.setItem(K,JSON.stringify(db));cloudStatus('online','Saved securely online');
+    cacheDB();cloudStatus('online','Saved securely online');
   }catch(err){console.error(err);cloudStatus('error','Online save failed');alert('Online save failed: '+err.message)}
   finally{cloudSaving=false;if(cloudQueued){cloudQueued=false;cloudWrite()}}
 }
 function save(){
-  localStorage.setItem(K,JSON.stringify(db));render();clearTimeout(cloudTimer);
+  cacheDB();render();clearTimeout(cloudTimer);
   if(cloudReady&&current&&role()!=='client')cloudWrite();
   else cloudTimer=setTimeout(cloudWrite,350);
 }
@@ -1391,13 +1400,13 @@ async function savePassword(e){
 }
 async function del(k,id){
   if(!confirm('Delete this record?'))return;
-  db[k]=(db[k]||[]).filter(x=>x.id!=id);localStorage.setItem(K,JSON.stringify(db));render();
+  db[k]=(db[k]||[]).filter(x=>x.id!=id);cacheDB();render();
   try{await api('/rest/v1/portal_records?record_type=eq.'+encodeURIComponent(k)+'&id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:{'Prefer':'return=minimal'}});cloudStatus('online','Record deleted online')}catch(err){alert('Online delete failed: '+err.message)}
 }
 async function clearDB(){
   if(role()!=='admin')return;
   if(!confirm('Delete ALL online training, certificate, request, payment and schedule data? This cannot be undone without a backup.'))return;
-  try{await api('/rest/v1/portal_records?id=not.is.null',{method:'DELETE',headers:{'Prefer':'return=minimal'}});db={participants:[],certificates:[],trainings:[],requests:[],payments:[],schedules:[]};localStorage.setItem(K,JSON.stringify(db));render();alert('Online database cleared.')}catch(err){alert(err.message)}
+  try{await api('/rest/v1/portal_records?id=not.is.null',{method:'DELETE',headers:{'Prefer':'return=minimal'}});db={participants:[],certificates:[],trainings:[],requests:[],payments:[],schedules:[]};cacheDB();render();alert('Online database cleared.')}catch(err){alert(err.message)}
 }
 async function callRecordAdmin(rows){
   if(!can('admin','consultant'))throw new Error('Administrator or consultant access required.');
