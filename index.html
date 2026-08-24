@@ -87,16 +87,16 @@
         <label><input type="radio" name="loginRole" value="client"><span>CLIENT</span></label>
         <label><input type="radio" name="loginRole" value="consultant"><span>CONSULTANT</span></label>
       </div>
-      <div class="field"><label>Username</label><input id="loginUser" required placeholder="Enter username"></div>
+      <div class="field"><label>Email Address</label><input id="loginUser" type="email" required placeholder="Enter your email"></div>
       <div class="field"><label>Password</label><input id="loginPass" type="password" required placeholder="Enter password"></div>
       <button class="btn primary" style="width:100%;margin-top:6px;padding:13px">SIGN IN</button>
     </form>
     <div class="client-entry">
-      <div class="client-entry-title">New Client?</div>
-      <div class="client-entry-text">Don't have an account yet? Register your company and create your own client login.</div>
-      <button type="button" class="btn client-register-btn" onclick="showRegister()">＋ CREATE CLIENT ACCOUNT</button>
+      <div class="client-entry-title">New Online Account?</div>
+      <div class="client-entry-text">Register once, confirm your email, then access your records from any computer or phone.</div>
+      <button type="button" class="btn client-register-btn" onclick="showRegister()">＋ CREATE ONLINE ACCOUNT</button>
     </div>
-    <div class="hint"><b>Select your account type above.</b><br>Clients: choose <b>CLIENT</b>, then enter the username and password you created.</div>
+    <div class="hint"><b>Select your account type above.</b><br>Sign in using your verified email address and password.</div>
   </div>
 
   <div class="login-card register-card" id="registerCard" style="display:none">
@@ -109,9 +109,8 @@
         <div class="field"><label>Company / Organization *</label><input id="regCompany" required placeholder="Company name"></div>
         <div class="field"><label>Email *</label><input id="regEmail" type="email" required placeholder="name@company.com"></div>
         <div class="field"><label>Contact Number *</label><input id="regContact" required placeholder="09XXXXXXXXX"></div>
-        <div class="field"><label>Username *</label><input id="regUsername" required minlength="4" placeholder="Create username"></div>
-        <div class="field"><label>Password *</label><input id="regPassword" type="password" required minlength="6" placeholder="At least 6 characters"></div>
-        <div class="field full"><label>Confirm Password *</label><input id="regConfirm" type="password" required minlength="6" placeholder="Re-enter password"></div>
+        <div class="field"><label>Password *</label><input id="regPassword" type="password" required minlength="10" placeholder="At least 10 characters"></div>
+        <div class="field"><label>Confirm Password *</label><input id="regConfirm" type="password" required minlength="10" placeholder="Re-enter password"></div>
       </div>
       <div class="actions" style="justify-content:stretch">
         <button type="button" class="btn gray" style="flex:1" onclick="showLogin()">BACK TO LOGIN</button>
@@ -1241,6 +1240,165 @@ function downloadCSV(type){let rows=[],head=[];if(type==='participants'){head=['
 if(type==='certificates'){head=['Certificate No','Participant','Service','Training','Issued Date','Expiry','Status'];rows=myCertificates().map(c=>[c.number,db.participants.find(p=>p.id==c.pid)?.name||'',c.service||'',db.trainings.find(t=>t.id==c.tid)?.name||'',c.date,c.expiry,c.status])}
 if(type==='requests'){head=['Date','Client','Company','Type','Service','Available Date','Participants','Status','Details'];rows=(can('client')?db.requests.filter(r=>r.clientId===current.id):db.requests).map(r=>[(r.created||'').slice(0,10),r.clientName,r.company,r.type,r.service,r.date,r.count,r.status,r.notes])}
 let csv=[head,...rows].map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\n'),a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=`1020-${type}-report.csv`;a.click()}
-setupAdminIfNeeded();restoreSession();now();migrateCertificateServices();if(!current){$('loginScreen').style.display='flex'}render();cloudLoad();setInterval(now,30000);
+/* Secure online authentication and cross-device synchronization */
+const SUPABASE_URL='https://ynhiqevcvehcrvsddcue.supabase.co';
+const SUPABASE_KEY='sb_publishable_PQDBnWCA_AH1qZlqAsDvvQ_21vQt_Dw';
+const AUTH_STORE='stcs_secure_session_v1';
+const RECORD_TYPES=['participants','certificates','trainings','requests','payments','schedules'];
+let authSession=JSON.parse(localStorage.getItem(AUTH_STORE)||'null');
+let cloudReady=false,cloudSaving=false,cloudQueued=false,cloudTimer=null;
+
+function setupAdminIfNeeded(){return true}
+function authHeaders(extra){
+  let h={'apikey':SUPABASE_KEY,'Content-Type':'application/json'};
+  if(authSession?.access_token)h.Authorization='Bearer '+authSession.access_token;
+  return Object.assign(h,extra||{});
+}
+async function refreshAuth(){
+  if(!authSession?.refresh_token)return false;
+  let r=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({refresh_token:authSession.refresh_token})});
+  if(!r.ok){localStorage.removeItem(AUTH_STORE);authSession=null;return false}
+  authSession=await r.json();authSession.expires_at=Math.floor(Date.now()/1000)+(authSession.expires_in||3600);
+  localStorage.setItem(AUTH_STORE,JSON.stringify(authSession));return true;
+}
+async function ensureAuth(){
+  if(!authSession)return false;
+  if((authSession.expires_at||0)<Math.floor(Date.now()/1000)+60)return refreshAuth();
+  return true;
+}
+async function api(path,options){
+  if(!(await ensureAuth()))throw new Error('Your session has expired. Please sign in again.');
+  let opts=options||{};opts.headers=authHeaders(opts.headers);
+  let r=await fetch(SUPABASE_URL+path,opts);
+  if(r.status===401&&await refreshAuth()){opts.headers=authHeaders(opts.headers);r=await fetch(SUPABASE_URL+path,opts)}
+  if(!r.ok){let msg=await r.text();throw new Error(msg||('Request failed ('+r.status+')'))}
+  if(r.status===204)return null;let text=await r.text();return text?JSON.parse(text):null;
+}
+async function loadProfile(){
+  let rows=await api('/rest/v1/profiles?select=user_id,email,name,company,contact,role,active');
+  users=(rows||[]).map(p=>({id:p.user_id,user_id:p.user_id,username:p.email,email:p.email,name:p.name,company:p.company,contact:p.contact,role:p.role,active:p.active}));
+  let uid=authSession?.user?.id;current=users.find(u=>u.id===uid)||null;
+  if(!current)throw new Error('Your portal profile is unavailable.');
+}
+function recordOwner(type,x){
+  if(role()==='client')return current.id;
+  let candidate=x.ownerId||x.owner_id||x.clientId||'';
+  if(users.some(u=>u.id===candidate))return candidate;
+  if(type==='certificates'){
+    let p=db.participants.find(v=>v.id===x.pid);
+    if(p)return recordOwner('participants',p);
+  }
+  if(x.company){
+    let u=users.find(v=>v.role==='client'&&v.company&&v.company.toLowerCase()===String(x.company).toLowerCase());
+    if(u)return u.id;
+  }
+  return null;
+}
+function rowsFromDB(){
+  let rows=[];
+  RECORD_TYPES.forEach(type=>(db[type]||[]).forEach(x=>{
+    let copy=Object.assign({},x),owner=recordOwner(type,copy);
+    if(owner){copy.ownerId=owner;if(type==='requests'||type==='payments')copy.clientId=owner}
+    rows.push({id:String(copy.id),record_type:type,owner_id:owner,company:String(copy.company||current?.company||''),data:copy,updated_at:new Date().toISOString()});
+  }));
+  return rows;
+}
+async function cloudLoad(){
+  if(!current)return;
+  cloudStatus('','Loading secure online records…');
+  try{
+    let rows=await api('/rest/v1/portal_records?select=id,record_type,owner_id,data&order=updated_at.asc');
+    let fresh={participants:[],certificates:[],trainings:[],requests:[],payments:[],schedules:[]};
+    (rows||[]).forEach(r=>{if(fresh[r.record_type]){let x=Object.assign({},r.data);x.id=x.id||r.id;if(r.owner_id)x.ownerId=r.owner_id;fresh[r.record_type].push(x)}});
+    db=fresh;localStorage.setItem(K,JSON.stringify(db));cloudReady=true;
+    cloudStatus('online','Secure online database connected');render();
+  }catch(err){console.error(err);cloudStatus('error','Online database error');alert('Could not load online records: '+err.message)}
+}
+async function cloudWrite(){
+  if(!cloudReady||!current)return;
+  if(cloudSaving){cloudQueued=true;return}
+  cloudSaving=true;cloudStatus('','Saving online…');
+  try{
+    let rows=rowsFromDB();
+    if(rows.length)await api('/rest/v1/portal_records?on_conflict=record_type,id',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rows)});
+    localStorage.setItem(K,JSON.stringify(db));cloudStatus('online','Saved securely online');
+  }catch(err){console.error(err);cloudStatus('error','Online save failed');alert('Online save failed: '+err.message)}
+  finally{cloudSaving=false;if(cloudQueued){cloudQueued=false;cloudWrite()}}
+}
+function save(){
+  localStorage.setItem(K,JSON.stringify(db));render();clearTimeout(cloudTimer);
+  cloudTimer=setTimeout(cloudWrite,350);
+}
+function saveUsers(){render()}
+async function registerClient(e){
+  e.preventDefault();
+  let name=$('regName').value.trim(),company=$('regCompany').value.trim(),email=$('regEmail').value.trim().toLowerCase(),contact=$('regContact').value.trim(),password=$('regPassword').value,confirm=$('regConfirm').value;
+  if(password!==confirm)return alert('Passwords do not match.');
+  if(password.length<10)return alert('Use a password with at least 10 characters.');
+  let r=await fetch(SUPABASE_URL+'/auth/v1/signup',{method:'POST',headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({email,password,data:{name,company,contact}})});
+  let data=await r.json();if(!r.ok)return alert(data.msg||data.message||'Account creation failed.');
+  if(data.access_token){
+    authSession=data;authSession.expires_at=Math.floor(Date.now()/1000)+(data.expires_in||3600);localStorage.setItem(AUTH_STORE,JSON.stringify(authSession));
+    await loadProfile();$('loginScreen').style.display='none';applyPermissions();syncUser();await cloudLoad();go('dash');
+  }else{
+    alert('Account created. Please open the confirmation email, confirm your address, then sign in.');
+    showLogin();$('loginUser').value=email;
+  }
+}
+async function login(e){
+  e.preventDefault();let selected=document.querySelector('input[name="loginRole"]:checked')?.value||'admin';
+  let email=$('loginUser').value.trim().toLowerCase(),password=$('loginPass').value;
+  let r=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+  let data=await r.json();if(!r.ok)return alert(data.error_description||data.msg||data.message||'Invalid email or password.');
+  authSession=data;authSession.expires_at=Math.floor(Date.now()/1000)+(data.expires_in||3600);localStorage.setItem(AUTH_STORE,JSON.stringify(authSession));
+  try{await loadProfile()}catch(err){localStorage.removeItem(AUTH_STORE);authSession=null;return alert(err.message)}
+  if(!current.active||current.role!==selected){localStorage.removeItem(AUTH_STORE);authSession=null;current=null;return alert('The selected account type does not match this account.')}
+  $('loginScreen').style.display='none';applyPermissions();syncUser();await cloudLoad();go('dash');
+}
+async function logout(){
+  if(!confirm('Log out of the current account?'))return;
+  try{if(authSession)await fetch(SUPABASE_URL+'/auth/v1/logout',{method:'POST',headers:authHeaders()})}catch(_){}
+  localStorage.removeItem(AUTH_STORE);authSession=null;current=null;users=[];$('loginPass').value='';$('loginScreen').style.display='flex';cloudReady=false;cloudStatus('','Sign in for online access');
+}
+async function restoreSession(){
+  if(!(await ensureAuth()))return false;
+  try{await loadProfile();$('loginScreen').style.display='none';applyPermissions();syncUser();await cloudLoad();return true}
+  catch(err){console.error(err);localStorage.removeItem(AUTH_STORE);authSession=null;current=null;return false}
+}
+async function saveClientProfile(){
+  if(role()!=='client'||!current)return;
+  let name=$('clientName').value.trim(),company=$('clientCompany').value.trim(),contact=$('clientContact').value.trim();
+  if(!name||!company)return alert('Contact Person and Company / Organization are required.');
+  try{
+    await api('/rest/v1/profiles?user_id=eq.'+encodeURIComponent(current.id),{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({name,company,contact,updated_at:new Date().toISOString()})});
+    current.name=name;current.company=company;current.contact=contact;await loadProfile();syncUser();render();alert('Profile updated securely online.');
+  }catch(err){alert('Profile update failed: '+err.message)}
+}
+async function saveAdminProfile(){
+  if(role()!=='admin')return;let name=$('adminNameInput').value.trim();if(!name)return alert('Administrator name is required.');
+  try{await api('/rest/v1/profiles?user_id=eq.'+encodeURIComponent(current.id),{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({name,updated_at:new Date().toISOString()})});await loadProfile();syncUser();alert('Administrator profile updated.')}catch(err){alert(err.message)}
+}
+async function savePassword(e){
+  e.preventDefault();if(newPass.value!==confirmPass.value)return alert('New passwords do not match.');
+  let verify=await fetch(SUPABASE_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify({email:current.email,password:oldPass.value})});
+  if(!verify.ok)return alert('Current password is incorrect.');
+  try{await api('/auth/v1/user',{method:'PUT',body:JSON.stringify({password:newPass.value})});closeM();alert('Password changed successfully.')}catch(err){alert(err.message)}
+}
+async function del(k,id){
+  if(!confirm('Delete this record?'))return;
+  db[k]=(db[k]||[]).filter(x=>x.id!=id);localStorage.setItem(K,JSON.stringify(db));render();
+  try{await api('/rest/v1/portal_records?record_type=eq.'+encodeURIComponent(k)+'&id=eq.'+encodeURIComponent(id),{method:'DELETE',headers:{'Prefer':'return=minimal'}});cloudStatus('online','Record deleted online')}catch(err){alert('Online delete failed: '+err.message)}
+}
+async function clearDB(){
+  if(role()!=='admin')return;
+  if(!confirm('Delete ALL online training, certificate, request, payment and schedule data? This cannot be undone without a backup.'))return;
+  try{await api('/rest/v1/portal_records?id=not.is.null',{method:'DELETE',headers:{'Prefer':'return=minimal'}});db={participants:[],certificates:[],trainings:[],requests:[],payments:[],schedules:[]};localStorage.setItem(K,JSON.stringify(db));render();alert('Online database cleared.')}catch(err){alert(err.message)}
+}
+async function startPortal(){
+  now();migrateCertificateServices();let ok=await restoreSession();
+  if(!ok){$('loginScreen').style.display='flex';cloudStatus('','Sign in for secure online access');render()}
+  setInterval(now,30000);
+}
+startPortal();
 </script><div id="cloudStatus" class="cloud-status"><span class="cloud-dot"></span><span id="cloudStatusText">Private device storage only</span></div>
 </body></html>
