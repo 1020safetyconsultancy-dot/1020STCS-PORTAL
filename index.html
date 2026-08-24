@@ -1318,7 +1318,7 @@ async function cloudLoad(){
       db=localSnapshot;cloudReady=true;await cloudWrite();
     }else db=fresh;
     localStorage.setItem(K,JSON.stringify(db));cloudReady=true;
-    cloudStatus('online','Secure online database connected');render();
+    cloudStatus('online','Secure online database connected • v2.1');render();
   }catch(err){console.error(err);cloudStatus('error','Online database error');alert('Could not load online records: '+err.message)}
 }
 async function cloudWrite(){
