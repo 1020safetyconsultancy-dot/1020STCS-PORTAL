@@ -1318,7 +1318,7 @@ async function cloudLoad(){
       db=localSnapshot;cloudReady=true;await cloudWrite();
     }else db=fresh;
     localStorage.setItem(K,JSON.stringify(db));cloudReady=true;
-    cloudStatus('online','Secure online database connected • v2.1');render();
+    cloudStatus('online','Secure online database connected • v2.2');render();
   }catch(err){console.error(err);cloudStatus('error','Online database error');alert('Could not load online records: '+err.message)}
 }
 async function cloudWrite(){
@@ -1340,7 +1340,8 @@ async function cloudWrite(){
 }
 function save(){
   localStorage.setItem(K,JSON.stringify(db));render();clearTimeout(cloudTimer);
-  cloudTimer=setTimeout(cloudWrite,350);
+  if(cloudReady&&current&&role()!=='client')cloudWrite();
+  else cloudTimer=setTimeout(cloudWrite,350);
 }
 function saveUsers(){render()}
 async function registerClient(e){
