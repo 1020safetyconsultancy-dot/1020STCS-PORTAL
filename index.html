@@ -902,13 +902,9 @@ syncScheduleBookings();
 localStorage.setItem(K,JSON.stringify(db));render();
 try{
   let rows=rowsFromDB().filter(row=>(row.record_type==='requests'&&row.id===String(r.id))||(row.record_type==='participants'&&row.data?.sourceRequestId===r.id));
-  for(let row of rows){
-    let filter='?record_type=eq.'+encodeURIComponent(row.record_type)+'&id=eq.'+encodeURIComponent(row.id);
-    let updated=await api('/rest/v1/portal_records'+filter,{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(row)});
-    if(!updated||!updated.length)await api('/rest/v1/portal_records',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify(row)});
-  }
-  let check=await api('/rest/v1/portal_records?select=data&record_type=eq.requests&id=eq.'+encodeURIComponent(r.id));
-  if(!check?.length||check[0]?.data?.status!==status)throw new Error('The database did not confirm the new request status.');
+  let saved=await callRecordAdmin(rows);
+  let confirmed=(saved.records||[]).find(row=>row.record_type==='requests'&&String(row.id)===String(r.id));
+  if(!confirmed||confirmed.data?.status!==status)throw new Error('The database did not confirm the new request status.');
   closeM();cloudStatus('online','Saved securely online');
   alert(status==='Approved'?`Request approved. ${r.count||r.participants?.length||0} participant(s) were added to the Participants list.`:'Request rejected.');
 }catch(err){
@@ -1313,7 +1309,7 @@ async function cloudLoad(){
       db=localSnapshot;cloudReady=true;await cloudWrite();
     }else db=fresh;
     localStorage.setItem(K,JSON.stringify(db));cloudReady=true;
-    cloudStatus('online','Secure online database connected • v2.3');render();
+    cloudStatus('online','Secure online database connected • v2.4');render();
   }catch(err){console.error(err);cloudStatus('error','Online database error');alert('Could not load online records: '+err.message)}
 }
 async function cloudWrite(){
@@ -1328,7 +1324,7 @@ async function cloudWrite(){
         let updated=await api('/rest/v1/portal_records'+filter,{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(row)});
         if(!updated||!updated.length)await api('/rest/v1/portal_records',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify(row)});
       }
-    }else if(rows.length)await api('/rest/v1/portal_records?on_conflict=record_type,id',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rows)});
+    }else if(rows.length)await callRecordAdmin(rows);
     localStorage.setItem(K,JSON.stringify(db));cloudStatus('online','Saved securely online');
   }catch(err){console.error(err);cloudStatus('error','Online save failed');alert('Online save failed: '+err.message)}
   finally{cloudSaving=false;if(cloudQueued){cloudQueued=false;cloudWrite()}}
@@ -1402,6 +1398,16 @@ async function clearDB(){
   if(role()!=='admin')return;
   if(!confirm('Delete ALL online training, certificate, request, payment and schedule data? This cannot be undone without a backup.'))return;
   try{await api('/rest/v1/portal_records?id=not.is.null',{method:'DELETE',headers:{'Prefer':'return=minimal'}});db={participants:[],certificates:[],trainings:[],requests:[],payments:[],schedules:[]};localStorage.setItem(K,JSON.stringify(db));render();alert('Online database cleared.')}catch(err){alert(err.message)}
+}
+async function callRecordAdmin(rows){
+  if(!can('admin','consultant'))throw new Error('Administrator or consultant access required.');
+  if(!(await ensureAuth()))throw new Error('Your session has expired. Please sign in again.');
+  let r=await fetch(SUPABASE_URL+'/functions/v1/manage-portal-record',{
+    method:'POST',headers:authHeaders(),body:JSON.stringify({action:'upsert_rows',rows})
+  });
+  let data=await r.json().catch(()=>({error:'Online record save failed.'}));
+  if(!r.ok)throw new Error(data.error||'Online record save failed.');
+  return data;
 }
 async function callUserAdmin(action,payload){
   if(role()!=='admin')throw new Error('Administrator access required.');
