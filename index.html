@@ -1327,7 +1327,13 @@ async function cloudWrite(){
   cloudSaving=true;cloudStatus('','Saving online…');
   try{
     let rows=rowsFromDB();
-    if(rows.length)await api('/rest/v1/portal_records?on_conflict=record_type,id',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rows)});
+    if(rows.length&&role()==='client'){
+      for(let row of rows){
+        let filter='?record_type=eq.'+encodeURIComponent(row.record_type)+'&id=eq.'+encodeURIComponent(row.id)+'&owner_id=eq.'+encodeURIComponent(current.id);
+        let updated=await api('/rest/v1/portal_records'+filter,{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(row)});
+        if(!updated||!updated.length)await api('/rest/v1/portal_records',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify(row)});
+      }
+    }else if(rows.length)await api('/rest/v1/portal_records?on_conflict=record_type,id',{method:'POST',headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rows)});
     localStorage.setItem(K,JSON.stringify(db));cloudStatus('online','Saved securely online');
   }catch(err){console.error(err);cloudStatus('error','Online save failed');alert('Online save failed: '+err.message)}
   finally{cloudSaving=false;if(cloudQueued){cloudQueued=false;cloudWrite()}}
