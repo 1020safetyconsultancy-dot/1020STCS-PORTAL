@@ -1281,6 +1281,7 @@ async function loadProfile(){
   if(!current)throw new Error('Your portal profile is unavailable.');
 }
 function recordOwner(type,x){
+  if(type==='trainings'||type==='schedules')return null;
   if(role()==='client')return current.id;
   let candidate=x.ownerId||x.owner_id||x.clientId||'';
   if(users.some(u=>u.id===candidate))return candidate;
@@ -1296,7 +1297,8 @@ function recordOwner(type,x){
 }
 function rowsFromDB(){
   let rows=[];
-  RECORD_TYPES.forEach(type=>(db[type]||[]).forEach(x=>{
+  let writableTypes=role()==='client'?['participants','requests','payments']:RECORD_TYPES;
+  writableTypes.forEach(type=>(db[type]||[]).forEach(x=>{
     let copy=Object.assign({},x),owner=recordOwner(type,copy);
     if(owner){copy.ownerId=owner;if(type==='requests'||type==='payments')copy.clientId=owner}
     rows.push({id:String(copy.id),record_type:type,owner_id:owner,company:String(copy.company||current?.company||''),data:copy,updated_at:new Date().toISOString()});
