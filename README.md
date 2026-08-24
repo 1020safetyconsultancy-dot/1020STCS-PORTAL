@@ -1,15 +1,26 @@
 # 1020 Safety Portal
 
-A browser-based portal for 1020 Safety Training Consultancy Services.
+Secure, browser-based portal for 1020 Safety Training Consultancy Services.
 
-## Running the portal
+## Online access
 
-Open `index.html` in a modern browser, or publish the repository with GitHub Pages.
+The portal uses Supabase Auth and PostgreSQL so approved users can access synchronized records from computers and mobile devices.
 
-On the first visit, the portal asks you to create an administrator account. No default passwords or database access keys are included.
+- Administrator account: `1020safetyconsultancy@gmail.com`
+- Clients register with their email address and password.
+- New users may need to confirm their email before signing in.
+- The selected login role must match the role assigned to the account.
 
-## Data and security
+## Access control
 
-This public version stores records only in the current browser using local storage. Data does not automatically synchronize across devices. Use the built-in backup function regularly.
+- Administrators can access all portal records.
+- Consultants can access operational records.
+- Clients can access only records owned by their account.
+- Training programs and published schedules are readable by signed-in users.
+- Anonymous database access is disabled.
 
-Do not use this static demonstration version as the permanent database for sensitive participant, payment, or certificate information. A production deployment should use secure server-side authentication, access controls, encrypted connections, and a protected database.
+The publishable browser key is intentionally public and is protected by PostgreSQL row-level security. Secret and service-role keys must never be committed to this repository.
+
+## Publishing
+
+Publish `index.html` from the `main` branch using GitHub Pages.
