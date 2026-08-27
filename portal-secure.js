@@ -13,7 +13,10 @@
   const recordSnapshot = new Map();
   let authListener = null;
   let authLoading = false;
-  let recoveryMode = /(?:[?#&])type=recovery(?:&|$)/.test(location.href);
+  const authRedirectParams = new URLSearchParams((location.hash || location.search || '').replace(/^[#?]/, ''));
+  const authRedirectErrorCode = authRedirectParams.get('error_code') || '';
+  const authRedirectErrorDescription = authRedirectParams.get('error_description') || '';
+  let recoveryMode = /(?:[?#&])type=recovery(?:&|$)/.test(location.href) && !authRedirectErrorCode;
 
   function resultBox(id, type, message) {
     const el = $(id);
@@ -321,13 +324,12 @@
   window.secureRequestPasswordReset = async function secureRequestPasswordReset(event) {
     event.preventDefault();
     const email = $('forgotEmail').value.trim().toLowerCase();
-    const redirectTo = location.origin === 'null' ? LIVE_URL : location.origin + location.pathname;
     const submit = event.submitter;
     if (submit) submit.disabled = true;
     try {
-      const {error} = await portalSupabase.auth.resetPasswordForEmail(email, {redirectTo});
+      const {error} = await portalSupabase.auth.resetPasswordForEmail(email, {redirectTo:LIVE_URL});
       if (error) throw error;
-      resultBox('forgotResult','ok','If the email is registered, a secure reset link has been sent. Please check your inbox.');
+      resultBox('forgotResult','ok','If the email is registered, a secure reset link has been sent. Open only the newest email link once; it will return to the live 1020 Safety Portal.');
     } catch (error) {
       resultBox('forgotResult','bad',error.message || 'The reset email could not be sent.');
     } finally {
@@ -597,6 +599,17 @@
         }, 0);
       });
       authListener = data.subscription;
+    }
+    if (authRedirectErrorCode) {
+      recoveryMode = false;
+      window.secureShowForgot();
+      const message = authRedirectErrorCode === 'otp_expired'
+        ? 'This password-reset link is expired or has already been used. Request a new link below, then open only the newest email link once.'
+        : (authRedirectErrorDescription || 'This password-reset link is invalid. Please request a new link below.');
+      resultBox('forgotResult','bad',message);
+      history.replaceState({}, document.title, location.pathname);
+      cloudStatus('', 'Request a new password-reset link');
+      return;
     }
     if (recoveryMode) {
       showRecovery();
