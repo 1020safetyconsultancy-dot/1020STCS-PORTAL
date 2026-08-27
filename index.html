@@ -114,6 +114,8 @@
 .payment-proof-preview img{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1px solid #cfdbd5;background:#fff}
 .payment-proof-preview .proof-meta{min-width:0;line-height:1.5;color:#44534c;word-break:break-word}
 .proof-viewer{text-align:center}.proof-viewer img{display:block;max-width:100%;max-height:65vh;margin:0 auto 14px;border-radius:10px;border:1px solid #d6dfda;background:#f4f6f5}
+.report-download-filter{margin:22px 0;padding:20px}.report-download-filter .filter-actions{display:flex;align-items:flex-end;gap:12px}.report-download-filter .filter-actions .field{flex:1;min-width:220px}.report-download-filter .filter-count{margin-top:12px;padding:10px 12px;border-radius:8px;background:#edf7f2;color:#185f45;font-weight:750}
+@media(max-width:760px){.report-download-filter .filter-actions{align-items:stretch;flex-direction:column}.report-download-filter .filter-actions .btn{width:100%}}
 
 .cloud-status{position:fixed;right:18px;bottom:16px;z-index:100;background:#fff;border:1px solid #d9e4de;border-radius:999px;padding:7px 11px;font-size:11px;font-weight:800;box-shadow:0 4px 16px rgba(0,0,0,.1);display:flex;align-items:center;gap:7px}
 .cloud-dot{width:8px;height:8px;border-radius:50%;background:#c68b00}
@@ -334,6 +336,16 @@
     <div class="panel report-card"><div class="label">Participants</div><div class="num" id="rp">0</div><p class="small">Registered participants</p><button class="btn primary" onclick="downloadCSV('participants')">Download CSV</button></div>
     <div class="panel report-card"><div class="label">Certificates</div><div class="num" id="rc">0</div><p class="small">Certificates issued</p><button class="btn primary" onclick="downloadCSV('certificates')">Download CSV</button></div>
     <div class="panel report-card"><div class="label">Requests</div><div class="num" id="rr">0</div><p class="small">Service requests</p><button class="btn primary" onclick="downloadCSV('requests')">Download CSV</button></div>
+  </div>
+
+  <div class="panel report-download-filter">
+    <div class="panel-head" style="margin:-20px -20px 18px">⬇ Filtered Participant Download <span class="muted">Choose a training course and scheduled date</span></div>
+    <div class="grid filter-actions">
+      <div class="field"><label for="reportCourseFilter">Training Course *</label><select id="reportCourseFilter" onchange="renderReportDownloadFilters()"><option value="">Select training course</option></select></div>
+      <div class="field"><label for="reportScheduleFilter">Training Date / Schedule *</label><select id="reportScheduleFilter" onchange="renderReportDownloadFilters()" disabled><option value="">Select date</option></select></div>
+      <button id="reportFilteredDownload" type="button" class="btn primary" onclick="downloadFilteredParticipantsCSV()" disabled>Download Filtered CSV</button>
+    </div>
+    <div id="reportFilterCount" class="filter-count">Choose a training course and date to prepare the participant list.</div>
   </div>
 
   <div class="panel schedule-report-wrap">
@@ -1153,6 +1165,30 @@ function renderScheduleParticipantReports(){
   }).join('');
 }
 function csvCell(v){return `"${String(v??'').replaceAll('"','""')}"`}
+function renderReportDownloadFilters(){
+  let course=$('reportCourseFilter'),schedule=$('reportScheduleFilter'),count=$('reportFilterCount'),button=$('reportFilteredDownload');
+  if(!course||!schedule||!count||!button)return;
+  let schedules=[...(db.schedules||[])].sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''));
+  let courses=[...new Set(schedules.map(sc=>cleanServiceName(sc.service||'')).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  let courseValue=course.value;
+  course.innerHTML='<option value="">Select training course</option>'+courses.map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join('');
+  course.value=courses.includes(courseValue)?courseValue:'';
+  let matches=course.value?schedules.filter(sc=>cleanServiceName(sc.service||'')===course.value):[];
+  let scheduleValue=schedule.value;
+  schedule.innerHTML='<option value="">Select date</option>'+matches.map(sc=>`<option value="${esc(sc.id)}">${fmtDate(sc.startDate)}${sc.endDate&&sc.endDate!==sc.startDate?' – '+fmtDate(sc.endDate):''} — ${esc(sc.venue||'Venue TBA')}</option>`).join('');
+  schedule.disabled=!course.value||!matches.length;
+  schedule.value=matches.some(sc=>String(sc.id)===String(scheduleValue))?scheduleValue:'';
+  let selected=matches.find(sc=>String(sc.id)===String(schedule.value));
+  if(!selected){count.textContent=course.value&&!matches.length?'No plotted dates are available for this course.':'Choose a training course and date to prepare the participant list.';button.disabled=true;return}
+  let total=scheduleParticipants(selected).length;
+  count.textContent=`${total} approved participant${total===1?'':'s'} found for ${cleanServiceName(selected.service||'training')} on ${fmtDate(selected.startDate)}${selected.endDate&&selected.endDate!==selected.startDate?' – '+fmtDate(selected.endDate):''}.`;
+  button.disabled=false
+}
+function downloadFilteredParticipantsCSV(){
+  let scheduleId=$('reportScheduleFilter')?.value;
+  if(!scheduleId)return alert('Please choose a training course and scheduled date.');
+  downloadScheduleParticipantsCSV(scheduleId)
+}
 function downloadScheduleParticipantsCSV(scheduleId){
   let sc=(db.schedules||[]).find(x=>x.id===scheduleId);if(!sc)return;
   let people=scheduleParticipants(sc);
@@ -1177,7 +1213,7 @@ let ps=myParticipants(),cs=myCertificates(),isClient=role()==='client';
 $('np').textContent=ps.length;$('nc').textContent=cs.length;$('nt').textContent=isClient?new Set(cs.map(c=>c.tid)).size:db.trainings.length;
 let pending=isClient?db.requests.filter(r=>r.clientId===current.id&&r.status==='Pending').length:db.requests.filter(r=>r.status==='Pending').length;
 $('nm').textContent=pending;$('n4Label').textContent='Requests';$('n4Sub').textContent=isClient?'Your pending requests':'Pending requests';
-$('rp').textContent=ps.length;$('rc').textContent=cs.length;$('rr').textContent=db.requests.length;renderScheduleParticipantReports();
+$('rp').textContent=ps.length;$('rc').textContent=cs.length;$('rr').textContent=db.requests.length;renderScheduleParticipantReports();renderReportDownloadFilters();
 let q=($('ps')?.value||'').toLowerCase();if($('pt'))$('pt').innerHTML=db.participants.filter(p=>(p.name+' '+p.company+' '+p.contact).toLowerCase().includes(q)).map(p=>`<tr><td>${p.photo?`<div style="display:flex;align-items:center;gap:8px"><img class="admin-participant-photo" src="${p.photo}" alt="Participant photo"><button type="button" class="btn primary action photo-download-btn" onclick="downloadParticipantPhoto('${p.id}')">Download</button></div>`:'<div class="photo-placeholder">No Photo</div>'}</td><td><b>${esc(p.name)}</b></td><td>${esc(p.company)}</td><td>${esc(p.contact)}</td><td>${fmtDate(p.registered)}</td><td><button class="btn gray action" onclick="participant('${p.id}')">Edit</button> <button class="btn red action" onclick="del('participants','${p.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">No participants yet.</td></tr>';
 let q2=($('cs')?.value||'').toLowerCase();if($('ct'))$('ct').innerHTML=cs.filter(c=>{let p=db.participants.find(x=>x.id==c.pid)?.name||'',t=db.trainings.find(x=>x.id==c.tid)?.name||'';return(c.number+' '+p+' '+t+' '+(c.service||'')).toLowerCase().includes(q2)}).map(c=>`<tr><td><b>${esc(c.number)}</b></td><td>${esc(db.participants.find(x=>x.id==c.pid)?.name||'')}</td><td>${esc(c.service||'—')}</td><td>${esc(db.trainings.find(x=>x.id==c.tid)?.name||'—')}</td><td>${fmtDate(c.date)}</td><td>${fmtDate(c.expiry)}</td><td>${esc(c.status)}</td><td>${can('admin','consultant')?`<button class="btn gray action" onclick="certificate('${c.id}')">Edit</button> <button class="btn red action" onclick="del('certificates','${c.id}')">Delete</button>`:'<span class="small">View only</span>'}</td></tr>`).join('')||'<tr><td colspan="8" class="empty">No certificates found.</td></tr>';
 let q3=($('ts')?.value||'').toLowerCase();if($('tt'))$('tt').innerHTML=db.trainings.filter(t=>(t.name+' '+t.code+' '+t.description).toLowerCase().includes(q3)).map(t=>`<tr><td><b>${esc(t.name)}</b></td><td>${esc(t.code)}</td><td>${esc(t.duration)}</td><td>${esc(t.description)}</td><td><button class="btn gray action" onclick="training('${t.id}')">Edit</button> <button class="btn red action" onclick="del('trainings','${t.id}')">Delete</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">No training programs yet.</td></tr>';
