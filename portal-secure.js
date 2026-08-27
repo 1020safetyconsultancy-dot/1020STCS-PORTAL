@@ -145,7 +145,6 @@
       await Promise.all([loadProfiles(), loadPortalRecords()]);
       cloudReady = true;
       $('loginScreen').style.display = 'none';
-      migrateCertificateServices();
       applyPermissions();
       syncUser();
       go('dash');
