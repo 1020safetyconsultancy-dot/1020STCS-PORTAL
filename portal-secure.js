@@ -6,6 +6,9 @@
   const CLIENT_WRITABLE = new Set(['participants','requests','payments']);
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const LIVE_URL = 'https://1020safetyconsultancy-dot.github.io/1020STCS-PORTAL/';
+  const PAYMENT_PROOF_BUCKET = 'payment-proofs';
+  const PAYMENT_PROOF_MAX_BYTES = 5 * 1024 * 1024;
+  const PAYMENT_PROOF_EXTENSIONS = new Map([['image/jpeg','jpg'],['image/png','png'],['image/webp','webp']]);
   const recordOwners = new Map();
   const recordSnapshot = new Map();
   let authListener = null;
@@ -500,6 +503,75 @@
       await loadProfiles();render();
     } catch (error) {
       alert(await edgeError(error));
+    }
+  };
+
+  window.secureSubmitPayment = async function secureSubmitPayment(payment, file) {
+    if (!current || current.role !== 'client' || !UUID_RE.test(String(current.id || ''))) {
+      throw new Error('Only a signed-in client can submit a payment.');
+    }
+    if (!file || !PAYMENT_PROOF_EXTENSIONS.has(file.type)) {
+      throw new Error('Please upload a JPEG, PNG, or WebP payment proof.');
+    }
+    if (file.size > PAYMENT_PROOF_MAX_BYTES) {
+      throw new Error('The payment proof must be 5 MB or smaller.');
+    }
+    const paymentId = String(payment?.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
+    if (!paymentId) throw new Error('The payment record could not be prepared.');
+    const extension = PAYMENT_PROOF_EXTENSIONS.get(file.type);
+    const proofPath = `${current.id}/${paymentId}-${Date.now()}.${extension}`;
+    const {data:uploaded, error:uploadError} = await portalSupabase.storage
+      .from(PAYMENT_PROOF_BUCKET)
+      .upload(proofPath, file, {contentType:file.type, cacheControl:'3600', upsert:false});
+    if (uploadError) throw new Error(`Proof upload failed: ${uploadError.message}`);
+
+    const stored = {
+      ...payment,
+      id: paymentId,
+      clientId: current.id,
+      ownerId: current.id,
+      clientEmail: current.email,
+      clientName: current.name || payment.clientName || 'Client',
+      company: current.company || payment.company || '',
+      proofPath: uploaded.path,
+      proofFileName: String(file.name || 'payment-proof').slice(0, 180),
+      proofMimeType: file.type,
+      proofSize: file.size,
+      proofUploadedAt: new Date().toISOString()
+    };
+    const row = {
+      id: paymentId,
+      record_type: 'payments',
+      owner_id: current.id,
+      company: stored.company,
+      data: stored,
+      updated_at: new Date().toISOString()
+    };
+    const {error:recordError} = await portalSupabase
+      .from('portal_records')
+      .upsert(row, {onConflict:'id,record_type'});
+    if (recordError) {
+      await portalSupabase.storage.from(PAYMENT_PROOF_BUCKET).remove([uploaded.path]).catch(() => {});
+      throw new Error(`Payment record failed: ${recordError.message}`);
+    }
+    const key = recordKey('payments', paymentId);
+    recordOwners.set(key, current.id);
+    recordSnapshot.set(key, JSON.stringify(stored));
+    return stored;
+  };
+
+  window.secureViewPaymentProof = async function secureViewPaymentProof(path, label='Payment Proof') {
+    const proofPath = String(path || '');
+    if (!proofPath || proofPath.includes('..')) return alert('This payment proof is unavailable.');
+    try {
+      const {data, error} = await portalSupabase.storage
+        .from(PAYMENT_PROOF_BUCKET)
+        .createSignedUrl(proofPath, 300);
+      if (error || !data?.signedUrl) throw error || new Error('Signed proof link was not created.');
+      modal('Payment Proof', `<div class="form proof-viewer"><h3 style="margin-top:0">${esc(label)}</h3><img src="${esc(data.signedUrl)}" alt="Payment proof"><a class="btn primary" href="${esc(data.signedUrl)}" target="_blank" rel="noopener noreferrer">Open Full Size</a><button type="button" class="btn gray" style="margin-left:8px" onclick="closeM()">Close</button><div class="small" style="margin-top:12px">Private viewing link expires in 5 minutes.</div></div>`);
+    } catch (error) {
+      console.error(error);
+      alert(error?.message || 'The payment proof could not be opened.');
     }
   };
 

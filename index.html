@@ -104,6 +104,16 @@
 .sidebar-brand-new .company{font-size:11px;line-height:1.25;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.1px}
 .login-card>img{border-radius:50%;clip-path:circle(43% at 50% 50%);mix-blend-mode:multiply;background:transparent;filter:drop-shadow(0 3px 5px rgba(4,61,42,.18))}
 .login-wrap{background-image:url("login-background.jpg")}
+.payment-account-card{padding:18px;min-height:126px}
+.payment-account-card .account-number{font-size:24px;font-weight:800;color:#13734c;letter-spacing:.4px;margin:7px 0 9px}
+.payment-account-card .account-name{font-size:13px;color:#43554e;line-height:1.45}
+#payProof{width:100%;border:1px dashed #8fb7a5;border-radius:10px;padding:10px;background:#f5faf7;color:#42524b;cursor:pointer}
+#payProof::file-selector-button{border:0;border-radius:7px;background:#126247;color:#fff;font-weight:800;padding:10px 14px;margin-right:12px;cursor:pointer}
+.payment-proof-preview{display:none;margin-top:10px;padding:12px;border:1px solid #d7e4dd;border-radius:10px;background:#f8fbf9;align-items:center;gap:14px}
+.payment-proof-preview.show{display:flex}
+.payment-proof-preview img{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1px solid #cfdbd5;background:#fff}
+.payment-proof-preview .proof-meta{min-width:0;line-height:1.5;color:#44534c;word-break:break-word}
+.proof-viewer{text-align:center}.proof-viewer img{display:block;max-width:100%;max-height:65vh;margin:0 auto 14px;border-radius:10px;border:1px solid #d6dfda;background:#f4f6f5}
 
 .cloud-status{position:fixed;right:18px;bottom:16px;z-index:100;background:#fff;border:1px solid #d9e4de;border-radius:999px;padding:7px 11px;font-size:11px;font-weight:800;box-shadow:0 4px 16px rgba(0,0,0,.1);display:flex;align-items:center;gap:7px}
 .cloud-dot{width:8px;height:8px;border-radius:50%;background:#c68b00}
@@ -366,8 +376,8 @@
       Select an approved request below, pay using GCash or BDO, then submit your payment details for Admin verification.
     </div>
     <div class="grid" style="margin-bottom:20px">
-      <div class="panel" style="padding:18px"><div class="label">GCASH</div><div style="font-size:24px;font-weight:800;color:#13734c">0917 187 6995</div></div>
-      <div class="panel" style="padding:18px"><div class="label">BDO (BDO Robinsons Bank)</div><div style="font-size:24px;font-weight:800;color:#13734c">007460333589</div></div>
+      <div class="panel payment-account-card"><div class="label">GCASH ACCOUNT</div><div class="account-number">09171876995</div><div class="account-name"><b>Account Name:</b> L*** C*** L*******</div></div>
+      <div class="panel payment-account-card"><div class="label">BDO (BDO Robinsons Bank)</div><div class="account-number">007460333589</div><div class="account-name"><b>Account Name:</b> 1020 Safety Training Consultancy Service</div></div>
     </div>
     <form class="form" onsubmit="submitPayment(event)" style="padding:0">
       <div class="grid">
@@ -377,9 +387,10 @@
         <div class="field"><label>Total Payment (₱) *</label><input id="payAmount" type="number" min="0" step="0.01" readonly required><div class="small" style="margin-top:5px">Automatically computed: service price × number of participants.</div></div>
         <div class="field"><label>Payment Date *</label><input id="payDate" type="date" required></div>
         <div class="field full"><label>Reference / Transaction Number *</label><input id="payRef" required placeholder="Enter GCash reference or BDO transaction/reference number"></div>
+        <div class="field full"><label for="payProof">Proof of Payment *</label><input id="payProof" type="file" accept="image/jpeg,image/png,image/webp" required onchange="previewPaymentProof(event)"><div class="small" style="margin-top:6px">Upload a clear JPEG, PNG, or WebP image, maximum 5 MB. Your proof is stored privately.</div><div id="payProofPreviewWrap" class="payment-proof-preview"><img id="payProofPreview" alt="Payment proof preview"><div class="proof-meta"><b id="payProofName"></b><br><span id="payProofSize" class="small"></span><br><button type="button" class="btn gray action" style="margin-top:7px" onclick="clearPaymentProof()">Remove Photo</button></div></div></div>
         <div class="field full"><label>Notes</label><textarea id="payNotes" placeholder="Optional payment notes"></textarea></div>
       </div>
-      <div class="actions"><button class="btn primary">SUBMIT PAYMENT</button></div>
+      <div class="actions"><button id="paySubmitButton" class="btn primary">SUBMIT PAYMENT</button></div>
     </form>
     <div style="margin-top:26px"><h3>My Payment Records</h3><div id="clientPayments"></div></div>
   </div>
@@ -387,7 +398,7 @@
 <section id="adminPayments" class="page">
   <div class="data-panel panel">
     <div class="panel-head">💳 Client Payments</div>
-    <table class="table"><thead><tr><th>CLIENT / COMPANY</th><th>SERVICE</th><th>AMOUNT</th><th>METHOD</th><th>REFERENCE</th><th>DATE</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody id="paymentTable"></tbody></table>
+    <table class="table"><thead><tr><th>CLIENT / COMPANY</th><th>SERVICE</th><th>AMOUNT</th><th>METHOD</th><th>REFERENCE</th><th>DATE</th><th>PROOF</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody id="paymentTable"></tbody></table>
   </div>
 </section>
 
@@ -1249,21 +1260,56 @@ function updatePaymentAmount(){
   if($('payDue'))$('payDue').value=due?due.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}):'';
   if($('payAmount'))$('payAmount').value=due?due.toFixed(2):''
 }
-function submitPayment(e){
-  e.preventDefault();let r=(db.requests||[]).find(x=>String(x.id)===String(payRequest.value));
+let paymentProofPreviewUrl='';
+function clearPaymentProof(){
+  if(paymentProofPreviewUrl)URL.revokeObjectURL(paymentProofPreviewUrl);paymentProofPreviewUrl='';
+  if($('payProof'))$('payProof').value='';
+  if($('payProofPreview'))$('payProofPreview').removeAttribute('src');
+  if($('payProofName'))$('payProofName').textContent='';
+  if($('payProofSize'))$('payProofSize').textContent='';
+  $('payProofPreviewWrap')?.classList.remove('show')
+}
+function previewPaymentProof(e){
+  let file=e.target.files?.[0];if(!file)return clearPaymentProof();
+  let allowed=['image/jpeg','image/png','image/webp'];
+  if(!allowed.includes(file.type)){clearPaymentProof();return alert('Please upload a JPEG, PNG, or WebP image.');}
+  if(file.size>5*1024*1024){clearPaymentProof();return alert('The payment proof must be 5 MB or smaller.');}
+  if(paymentProofPreviewUrl)URL.revokeObjectURL(paymentProofPreviewUrl);
+  paymentProofPreviewUrl=URL.createObjectURL(file);
+  $('payProofPreview').src=paymentProofPreviewUrl;
+  $('payProofName').textContent=file.name;
+  $('payProofSize').textContent=`${(file.size/1024/1024).toFixed(2)} MB — ready to upload securely`;
+  $('payProofPreviewWrap').classList.add('show')
+}
+async function submitPayment(e){
+  e.preventDefault();let r=(db.requests||[]).find(x=>String(x.id)===String($('payRequest').value));
   if(!r)return alert('Please select an approved request.');
-  let payment={id:eid(),requestId:r.id,clientId:current?.id||'',clientUsername:current?.username||'',clientEmail:current?.email||'',clientName:current?.name||current?.contactPerson||'Client',company:current?.company||r.company||'',service:requestServiceName(r),participants:requestParticipantCount(r),amountDue:requestAmountDue(r),amountPaid:Number(payAmount.value||0),method:payMethod.value,date:payDate.value,reference:payRef.value.trim(),notes:payNotes.value.trim(),status:'Pending Verification',createdAt:new Date().toISOString()};
+  let file=$('payProof')?.files?.[0];if(!file)return alert('Please upload a photo as proof of payment.');
+  let payment={id:eid(),requestId:r.id,clientId:current?.id||'',clientUsername:current?.username||'',clientEmail:current?.email||'',clientName:current?.name||current?.contactPerson||'Client',company:current?.company||r.company||'',service:requestServiceName(r),participants:requestParticipantCount(r),amountDue:requestAmountDue(r),amountPaid:Number($('payAmount').value||0),method:$('payMethod').value,date:$('payDate').value,reference:$('payRef').value.trim(),notes:$('payNotes').value.trim(),status:'Pending Verification',createdAt:new Date().toISOString()};
   if(db.payments.some(p=>p.reference===payment.reference&&p.method===payment.method))return alert('This payment reference has already been submitted.');
-  db.payments.push(payment);save();alert('Payment submitted. It is now pending Admin verification.');e.target.reset();populatePaymentRequests()
+  let submit=e.submitter||$('paySubmitButton'),original=submit?.textContent||'SUBMIT PAYMENT';if(submit){submit.disabled=true;submit.textContent='UPLOADING PROOF…'}
+  try{
+    if(!window.secureSubmitPayment)throw new Error('Secure payment upload is unavailable. Please refresh the page.');
+    payment=await window.secureSubmitPayment(payment,file);
+    db.payments.push(payment);render();
+    alert('Payment and proof submitted. It is now pending Admin verification.');
+    e.target.reset();clearPaymentProof();populatePaymentRequests()
+  }catch(error){console.error(error);alert(error.message||'Payment submission failed. Please try again.');}
+  finally{if(submit){submit.disabled=false;submit.textContent=original}}
+}
+function viewPaymentProof(id){
+  let p=(db.payments||[]).find(x=>String(x.id)===String(id));
+  if(!p?.proofPath)return alert('No payment proof is attached to this record.');
+  return window.secureViewPaymentProof?.(p.proofPath,`${p.clientName||'Client'} — ${p.service||'Payment'}`)
 }
 function renderClientPayments(){
   let box=$('clientPayments');if(!box)return;let key=currentClientKey();
   let mine=(db.payments||[]).filter(p=>p.clientId===key||p.clientUsername===(current?.username||'')||p.clientEmail===(current?.email||''));
-  box.innerHTML=mine.length?`<table class="table"><thead><tr><th>SERVICE</th><th>AMOUNT PAID</th><th>METHOD</th><th>REFERENCE</th><th>DATE</th><th>STATUS</th></tr></thead><tbody>${mine.map(p=>`<tr><td>${esc(p.service)}</td><td>₱${Number(p.amountPaid||0).toLocaleString(undefined,{minimumFractionDigits:2})}</td><td>${esc(p.method)}</td><td>${esc(p.reference)}</td><td>${fmtDate(p.date)}</td><td><b>${esc(p.status)}</b></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No payment records yet.</div>'
+  box.innerHTML=mine.length?`<table class="table"><thead><tr><th>SERVICE</th><th>AMOUNT PAID</th><th>METHOD</th><th>REFERENCE</th><th>DATE</th><th>PROOF</th><th>STATUS</th></tr></thead><tbody>${mine.map(p=>`<tr><td>${esc(p.service)}</td><td>₱${Number(p.amountPaid||0).toLocaleString(undefined,{minimumFractionDigits:2})}</td><td>${esc(p.method)}</td><td>${esc(p.reference)}</td><td>${fmtDate(p.date)}</td><td>${p.proofPath?`<button class="btn gray action" onclick="viewPaymentProof('${esc(p.id)}')">View Photo</button>`:'—'}</td><td><b>${esc(p.status)}</b></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No payment records yet.</div>'
 }
 function renderAdminPayments(){
   let tb=$('paymentTable');if(!tb)return;
-  tb.innerHTML=(db.payments||[]).length?(db.payments||[]).map(p=>`<tr><td><b>${esc(p.clientName||'Client')}</b><br><span class="small">${esc(p.company||'')}</span></td><td>${esc(p.service||'')}</td><td>₱${Number(p.amountPaid||0).toLocaleString(undefined,{minimumFractionDigits:2})}</td><td>${esc(p.method||'')}</td><td>${esc(p.reference||'')}</td><td>${fmtDate(p.date)}</td><td><b>${esc(p.status||'')}</b></td><td>${p.status==='Pending Verification'?`<button class="btn primary action" onclick="verifyPayment('${p.id}')">Verify</button> <button class="btn red action" onclick="rejectPayment('${p.id}')">Reject</button>`:'<span class="small">Reviewed</span>'}</td></tr>`).join(''):'<tr><td colspan="8" class="empty">No payment submissions yet.</td></tr>'
+  tb.innerHTML=(db.payments||[]).length?(db.payments||[]).map(p=>`<tr><td><b>${esc(p.clientName||'Client')}</b><br><span class="small">${esc(p.company||'')}</span></td><td>${esc(p.service||'')}</td><td>₱${Number(p.amountPaid||0).toLocaleString(undefined,{minimumFractionDigits:2})}</td><td>${esc(p.method||'')}</td><td>${esc(p.reference||'')}</td><td>${fmtDate(p.date)}</td><td>${p.proofPath?`<button class="btn gray action" onclick="viewPaymentProof('${esc(p.id)}')">View Photo</button>`:'—'}</td><td><b>${esc(p.status||'')}</b></td><td>${p.status==='Pending Verification'?`<button class="btn primary action" onclick="verifyPayment('${p.id}')">Verify</button> <button class="btn red action" onclick="rejectPayment('${p.id}')">Reject</button>`:'<span class="small">Reviewed</span>'}</td></tr>`).join(''):'<tr><td colspan="9" class="empty">No payment submissions yet.</td></tr>'
 }
 function verifyPayment(id){
   if(!confirm('Verify this payment?'))return;let p=db.payments.find(x=>x.id==id);if(!p)return;
