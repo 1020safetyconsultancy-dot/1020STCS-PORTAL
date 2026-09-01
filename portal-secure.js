@@ -5,7 +5,6 @@
   const RECORD_TYPES = ['participants','certificates','trainings','requests','payments','schedules'];
   const CLIENT_WRITABLE = new Set(['participants','requests','payments']);
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const LIVE_URL = 'https://1020safetyconsultancy-dot.github.io/1020STCS-PORTAL/';
   const PAYMENT_PROOF_BUCKET = 'payment-proofs';
   const PAYMENT_PROOF_MAX_BYTES = 5 * 1024 * 1024;
   const PAYMENT_PROOF_EXTENSIONS = new Map([['image/jpeg','jpg'],['image/png','png'],['image/webp','webp']]);
@@ -13,6 +12,7 @@
   const recordSnapshot = new Map();
   let authListener = null;
   let authLoading = false;
+  let recoveryEmail = '';
   const authRedirectParams = new URLSearchParams((location.hash || location.search || '').replace(/^[#?]/, ''));
   const authRedirectErrorCode = authRedirectParams.get('error_code') || '';
   const authRedirectErrorDescription = authRedirectParams.get('error_description') || '';
@@ -242,6 +242,7 @@
 
   window.secureShowLogin = function secureShowLogin() {
     recoveryMode = false;
+    recoveryEmail = '';
     authCard('authLoginCard');
     resultBox('forgotResult', '', '');
     resultBox('registerResult', '', '');
@@ -257,6 +258,7 @@
   };
 
   window.secureShowForgot = function secureShowForgot() {
+    recoveryMode = false;
     authCard('forgotCard');
     $('forgotEmail').value = $('loginUser').value.trim();
     resultBox('forgotResult', '', '');
@@ -327,41 +329,52 @@
     const submit = event.submitter;
     if (submit) submit.disabled = true;
     try {
-      const {error} = await portalSupabase.auth.resetPasswordForEmail(email, {redirectTo:LIVE_URL});
+      const {error} = await portalSupabase.auth.resetPasswordForEmail(email);
       if (error) throw error;
-      resultBox('forgotResult','ok','If the email is registered, a secure reset link has been sent. Open only the newest email link once; it will return to the live 1020 Safety Portal.');
+      recoveryEmail = email;
+      showRecovery(email);
+      resultBox('recoveryResult','ok','A 6-digit verification code was sent to your email. Enter the newest code below.');
     } catch (error) {
-      resultBox('forgotResult','bad',error.message || 'The reset email could not be sent.');
+      resultBox('forgotResult','bad',error.message || 'The verification code could not be sent.');
     } finally {
       if (submit) submit.disabled = false;
     }
   };
 
-  function showRecovery() {
+  function showRecovery(email = '') {
     recoveryMode = true;
+    if (email) recoveryEmail = email;
     authCard('recoveryCard');
+    if ($('recoveryEmail')) $('recoveryEmail').value = recoveryEmail;
+    if ($('recoveryOtp')) $('recoveryOtp').value = '';
     $('recoveryNewPass').value = '';
     $('recoveryConfirmPass').value = '';
     resultBox('recoveryResult','','');
-    setTimeout(() => $('recoveryNewPass').focus(), 0);
+    setTimeout(() => (recoveryEmail ? $('recoveryOtp') : $('recoveryEmail')).focus(), 0);
   }
 
   window.secureCompletePasswordRecovery = async function secureCompletePasswordRecovery(event) {
     event.preventDefault();
+    const email = ($('recoveryEmail')?.value || recoveryEmail).trim().toLowerCase();
+    const token = ($('recoveryOtp')?.value || '').replace(/\D/g, '');
     const password = $('recoveryNewPass').value;
     const confirmPassword = $('recoveryConfirmPass').value;
+    if (!email) return resultBox('recoveryResult','bad','Enter your registered email address.');
+    if (!/^\d{6}$/.test(token)) return resultBox('recoveryResult','bad','Enter the 6-digit code from your newest email.');
     if (password !== confirmPassword) return resultBox('recoveryResult','bad','Passwords do not match.');
     const submit = event.submitter;
     if (submit) submit.disabled = true;
     try {
+      recoveryMode = true;
+      const {data:verification, error:verifyError} = await portalSupabase.auth.verifyOtp({email, token, type:'recovery'});
+      if (verifyError || !verification?.session) throw verifyError || new Error('The code is invalid or expired. Request a new code.');
       const {error} = await portalSupabase.auth.updateUser({password});
       if (error) throw error;
       resultBox('recoveryResult','ok','Password updated successfully. Returning to login…');
       await portalSupabase.auth.signOut();
-      history.replaceState({}, document.title, location.pathname);
       setTimeout(window.secureShowLogin, 900);
     } catch (error) {
-      resultBox('recoveryResult','bad',error.message || 'Password update failed. Request a new reset link.');
+      resultBox('recoveryResult','bad',error.message || 'Password update failed. Request a new verification code.');
     } finally {
       if (submit) submit.disabled = false;
     }
@@ -604,11 +617,11 @@
       recoveryMode = false;
       window.secureShowForgot();
       const message = authRedirectErrorCode === 'otp_expired'
-        ? 'This password-reset link is expired or has already been used. Request a new link below, then open only the newest email link once.'
-        : (authRedirectErrorDescription || 'This password-reset link is invalid. Please request a new link below.');
+        ? 'That old reset link has expired. Request a new 6-digit verification code below.'
+        : (authRedirectErrorDescription || 'That old reset link is invalid. Please request a new verification code below.');
       resultBox('forgotResult','bad',message);
       history.replaceState({}, document.title, location.pathname);
-      cloudStatus('', 'Request a new password-reset link');
+      cloudStatus('', 'Request a new verification code');
       return;
     }
     if (recoveryMode) {
