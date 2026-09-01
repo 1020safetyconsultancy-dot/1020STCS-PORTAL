@@ -170,13 +170,13 @@
   <div class="login-card" id="forgotCard" style="display:none">
     <div class="recovery-icon" aria-hidden="true">🔐</div>
     <h2>Forgot Password?</h2>
-    <p>We will send a secure password-reset link to your registered email.</p>
+    <p>We will email a secure 6-digit verification code.</p>
     <form onsubmit="resetForgottenPassword(event)">
-      <div class="recovery-note">For your security, passwords are never stored inside this webpage.</div>
+      <div class="recovery-note">No link is required. Enter the code in this portal, then create your new password.</div>
       <div class="field"><label for="forgotEmail">Registered Email</label><input id="forgotEmail" type="email" required placeholder="name@company.com" autocomplete="email"></div>
       <div class="actions" style="justify-content:stretch">
         <button type="button" class="btn gray" style="flex:1" onclick="showLogin()">BACK TO LOGIN</button>
-        <button class="btn primary" style="flex:1">SEND RESET LINK</button>
+        <button class="btn primary" style="flex:1">SEND 6-DIGIT CODE</button>
       </div>
     </form>
     <div id="forgotResult" class="result" role="status" aria-live="polite"></div>
@@ -184,12 +184,15 @@
 
   <div class="login-card" id="recoveryCard" style="display:none">
     <div class="recovery-icon" aria-hidden="true">🔑</div>
-    <h2>Create New Password</h2>
-    <p>Enter a strong new password for your account.</p>
+    <h2>Verify &amp; Reset Password</h2>
+    <p>Enter the newest 6-digit code sent to your email.</p>
     <form onsubmit="completePasswordRecovery(event)">
+      <div class="field"><label for="recoveryEmail">Registered Email</label><input id="recoveryEmail" type="email" required placeholder="name@company.com" autocomplete="email"></div>
+      <div class="field"><label for="recoveryOtp">6-Digit Verification Code</label><input id="recoveryOtp" type="text" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="000000" style="font-size:24px;font-weight:800;letter-spacing:8px;text-align:center"></div>
       <div class="field"><label for="recoveryNewPass">New Password</label><div class="password-wrap"><input id="recoveryNewPass" type="password" required minlength="8" placeholder="At least 8 characters" autocomplete="new-password"><button type="button" class="password-toggle" aria-label="Show password" aria-pressed="false" onclick="togglePassword('recoveryNewPass',this)"><svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 6.2A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16.8 16.8 0 0 1-2.2 3M6.2 6.2C3.8 8 2.5 12 2.5 12s3.5 6 9.5 6a9.8 9.8 0 0 0 3-.5M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button></div></div>
       <div class="field"><label for="recoveryConfirmPass">Confirm New Password</label><div class="password-wrap"><input id="recoveryConfirmPass" type="password" required minlength="8" placeholder="Re-enter new password" autocomplete="new-password"><button type="button" class="password-toggle" aria-label="Show password" aria-pressed="false" onclick="togglePassword('recoveryConfirmPass',this)"><svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 6.2A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16.8 16.8 0 0 1-2.2 3M6.2 6.2C3.8 8 2.5 12 2.5 12s3.5 6 9.5 6a9.8 9.8 0 0 0 3-.5M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button></div></div>
-      <button class="btn primary" style="width:100%;padding:13px">UPDATE PASSWORD</button>
+      <button class="btn primary" style="width:100%;padding:13px">VERIFY CODE &amp; UPDATE PASSWORD</button>
+      <button type="button" class="btn gray" style="width:100%;margin-top:9px" onclick="showForgot()">REQUEST A NEW CODE</button>
     </form>
     <div id="recoveryResult" class="result" role="status" aria-live="polite"></div>
   </div>
@@ -229,8 +232,7 @@
     <button data-roles="client" onclick="page('clientPortal',this)"><span class="ico">▣</span>My Portal</button>
     <button data-roles="admin,consultant" onclick="page('participants',this)"><span class="ico">♧</span>Participants</button>
     <button data-roles="admin,consultant" onclick="page('trainings',this)"><span class="ico">🎓</span>Trainings</button>
-    <button data-roles="admin,client,consultant" onclick="page('certificates',this)"><span class="ico">▧</span>Certificates</button>
-    <button data-roles="admin,client,consultant" onclick="page('verify',this)"><span class="ico">🛡</span>Certificate Verification</button>
+    <button data-roles="admin,client,consultant" onclick="page('certificates',this)"><span class="ico">🛡</span>Certificates &amp; Verification</button>
     <button data-roles="admin,consultant" onclick="page('requests',this)"><span class="ico">✉</span>Requests</button>
     <button data-roles="admin,consultant" onclick="page('clients',this)"><span class="ico">♙</span>Clients</button>
     <button data-roles="admin" onclick="page('services',this)"><span class="ico">▣</span>Services Offered</button><button data-roles="admin" onclick="page('scheduleAdmin',this)"><span class="ico">📅</span>Training Schedule</button>
@@ -355,9 +357,13 @@
 
 <section id="trainings" class="page"><div class="data-panel panel"><div class="toolbar"><input id="ts" class="search" placeholder="Search training..." oninput="render()"><button class="btn primary" onclick="training()">＋ Add Training</button></div><table class="table"><thead><tr><th>TRAINING</th><th>CODE</th><th>DURATION</th><th>DESCRIPTION</th><th>ACTIONS</th></tr></thead><tbody id="tt"></tbody></table></div></section>
 
-<section id="certificates" class="page"><div class="data-panel panel"><div class="toolbar"><input id="cs" class="search" placeholder="Search certificate number, participant or training..." oninput="render()"><button class="btn primary" data-roles="admin,consultant" onclick="certificate()">＋ Record Certificate</button></div><table class="table"><thead><tr><th>CERTIFICATE NO.</th><th>PARTICIPANT</th><th>SERVICE</th><th>TRAINING</th><th>ISSUED DATE</th><th>EXPIRY</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody id="ct"></tbody></table></div></section>
-
-<section id="verify" class="page"><div class="panel" style="max-width:720px;margin:auto"><div class="panel-head">🛡 Certificate Verification</div><div class="verify"><p>Enter a certificate number to verify its authenticity.</p><input id="verifyInput" placeholder="Certificate Number"><button class="btn primary" onclick="verifyCertificate()">VERIFY CERTIFICATE</button><div id="verifyResult" class="result"></div></div></div></section>
+<section id="certificates" class="page">
+  <div class="panel" style="max-width:760px;margin:0 auto 20px">
+    <div class="panel-head">🛡 Certificates &amp; Verification</div>
+    <div class="verify"><p>Enter a certificate number to verify its authenticity.</p><input id="verifyInput" placeholder="e.g. 1020-BOSH-2026-001"><button class="btn primary" onclick="verifyCertificate()">VERIFY CERTIFICATE</button><div id="verifyResult" class="result"></div></div>
+  </div>
+  <div class="data-panel panel"><div class="toolbar"><input id="cs" class="search" placeholder="Search certificate number, participant or training..." oninput="render()"><button class="btn primary" data-roles="admin,consultant" onclick="certificate()">＋ Record Certificate</button></div><table class="table"><thead><tr><th>CERTIFICATE NO.</th><th>PARTICIPANT</th><th>SERVICE</th><th>TRAINING</th><th>ISSUED DATE</th><th>EXPIRY</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody id="ct"></tbody></table></div>
+</section>
 
 <section id="requests" class="page"><div class="data-panel panel"><div class="toolbar"><input id="rs" class="search" placeholder="Search requests..." oninput="render()"></div><table class="table"><thead><tr><th>DATE</th><th>CLIENT</th><th>TYPE</th><th>SERVICE</th><th>PARTICIPANTS</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody id="rq"></tbody></table></div></section>
 
@@ -1415,6 +1421,6 @@ let csv=[head,...rows].map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`
 now();$('loginScreen').style.display='flex';setInterval(now,30000);window.addEventListener('DOMContentLoaded',()=>window.securePortalBootstrap?.());
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/dist/umd/supabase.js" crossorigin="anonymous"></script>
-<script src="portal-secure.js?v=900f4cff"></script>
+<script src="portal-secure.js?v=0815dcb4"></script>
 <div id="cloudStatus" class="cloud-status"><span class="cloud-dot"></span><span id="cloudStatusText">Securely connecting…</span></div>
 </body></html>
