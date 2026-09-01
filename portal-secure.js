@@ -590,6 +590,69 @@
     }
   };
 
+  function participantDeletionKey(participant) {
+    const name = participant.name || [participant.lastName, participant.firstName, participant.middleName, participant.suffix]
+      .filter(Boolean).join(' ');
+    return [name, participant.company, participant.personalEmail || participant.email, participant.birthdate]
+      .map(value => String(value || '').trim().toLowerCase()).join('|');
+  }
+
+  // Approved requests import their participants into the registry. Remember
+  // intentional removals so render() does not immediately recreate the record.
+  window.syncApprovedRequests = function syncApprovedRequestsSecure() {
+    let changed = false;
+    (db.requests || []).filter(request => request.status === 'Approved').forEach(request => {
+      const items = requestParticipants(request);
+      const client = users.find(user => user.id === request.clientId) || {};
+      const registered = (request.created || new Date().toISOString()).slice(0, 10);
+      items.forEach(item => {
+        const record = participantRecordFromRequest(item, request, client, registered);
+        if (!record.name || (request.deletedParticipantKeys || []).includes(participantDeletionKey(record))) return;
+        const existing = db.participants.find(participant =>
+          String(participant.name || '').trim().toLowerCase() === record.name.trim().toLowerCase() &&
+          String(participant.company || '').trim().toLowerCase() === String(record.company || '').trim().toLowerCase()
+        );
+        if (existing) {
+          if (record.photo && !existing.photo) { existing.photo = record.photo; changed = true; }
+          return;
+        }
+        record.id = eid();
+        record.notes = `Added automatically from approved ${request.type || 'service'} request${request.service ? ` — ${request.service}` : ''}.`;
+        record.sourceRequestId = request.id;
+        db.participants.push(record);
+        changed = true;
+      });
+    });
+    if (changed) queueCloudSave();
+  };
+
+  window.del = function secureDeleteRecord(type, id) {
+    if (!can('admin', 'consultant')) return;
+    if (type !== 'participants') {
+      if (confirm('Delete this record?')) { db[type] = db[type].filter(item => item.id != id); save(); }
+      return;
+    }
+    const participant = db.participants.find(item => item.id == id);
+    if (!participant) return;
+    const linkedCertificates = db.certificates.filter(certificate => certificate.pid == id);
+    const warning = linkedCertificates.length
+      ? `Delete ${participant.name || 'this participant'}? This will also permanently delete ${linkedCertificates.length} linked certificate record${linkedCertificates.length === 1 ? '' : 's'}.`
+      : `Delete ${participant.name || 'this participant'}? This action cannot be undone.`;
+    if (!confirm(warning)) return;
+
+    if (participant.sourceRequestId) {
+      const request = db.requests.find(item => item.id == participant.sourceRequestId);
+      if (request) {
+        const deleted = new Set(request.deletedParticipantKeys || []);
+        deleted.add(participantDeletionKey(participant));
+        request.deletedParticipantKeys = [...deleted];
+      }
+    }
+    db.certificates = db.certificates.filter(certificate => certificate.pid != id);
+    db.participants = db.participants.filter(item => item.id != id);
+    save();
+  };
+
   window.securePortalBootstrap = async function securePortalBootstrap() {
     if (!window.supabase?.createClient) {
       cloudStatus('error', 'Security library failed to load');
