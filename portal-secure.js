@@ -653,6 +653,74 @@
     save();
   };
 
+  function cleanDownloadPart(value, fallback='') {
+    return String(value || fallback)
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
+      .replace(/\s+/g, ' ').trim()
+      .replace(/\s/g, '_').replace(/_+/g, '_')
+      .replace(/^\.+|[. ]+$/g, '') || fallback;
+  }
+
+  function participantRequest(participant) {
+    if (participant.sourceRequestId) {
+      const direct = (db.requests || []).find(request => request.id == participant.sourceRequestId);
+      if (direct) return direct;
+    }
+    const key = participantDeletionKey(participant);
+    return (db.requests || []).find(request => requestParticipants(request).some(item => {
+      const client = users.find(user => user.id === request.clientId) || {};
+      const record = participantRecordFromRequest(item, request, client, (request.created || '').slice(0, 10));
+      return participantDeletionKey(record) === key;
+    })) || null;
+  }
+
+  function requestSchedule(request) {
+    if (!request) return null;
+    return (db.schedules || []).find(schedule => schedule.id == request.scheduleId) ||
+      (db.schedules || []).find(schedule => {
+        const date = request.date || '';
+        return cleanServiceName(schedule.service || '') === cleanServiceName(request.service || '') &&
+          date && date >= schedule.startDate && date <= schedule.endDate;
+      }) || null;
+  }
+
+  function participantPhotoFilename(participant, request=null) {
+    request = request || participantRequest(participant);
+    const schedule = requestSchedule(request);
+    const certificate = (db.certificates || []).find(item => item.pid == participant.id);
+    const training = schedule?.service || request?.service || certificate?.service ||
+      (db.trainings || []).find(item => item.id == certificate?.tid)?.name || 'Training';
+    const start = schedule?.startDate || request?.date || '';
+    const end = schedule?.endDate && schedule.endDate !== start ? schedule.endDate : '';
+    const dateLabel = start ? `${start}${end ? `_to_${end}` : ''}` : 'Schedule_TBA';
+    const fullName = participant.name || [participant.lastName, participant.firstName, participant.middleName, participant.suffix]
+      .filter(Boolean).join(' ') || 'Participant';
+    return `${cleanDownloadPart(fullName, 'Participant')}__${cleanDownloadPart(training, 'Training')}__${cleanDownloadPart(dateLabel, 'Schedule_TBA')}`;
+  }
+
+  window.downloadParticipantPhoto = function secureDownloadParticipantPhoto(id) {
+    const participant = (db.participants || []).find(item => item.id === id);
+    if (!participant?.photo) return alert('No uploaded picture is available for this participant.');
+    const link = document.createElement('a');
+    link.href = participant.photo;
+    link.download = `${participantPhotoFilename(participant)}.${photoExtension(participant.photo)}`;
+    document.body.appendChild(link); link.click(); link.remove();
+  };
+
+  window.downloadRequestParticipantPhoto = function secureDownloadRequestParticipantPhoto(requestId, index) {
+    const request = (db.requests || []).find(item => item.id === requestId);
+    const participant = request ? requestParticipants(request)[index] : null;
+    if (!participant || typeof participant === 'string' || !participant.photo) {
+      return alert('No uploaded picture is available for this participant.');
+    }
+    const normalized = {...participant, name: participantFullName(participant)};
+    const link = document.createElement('a');
+    link.href = participant.photo;
+    link.download = `${participantPhotoFilename(normalized, request)}.${photoExtension(participant.photo)}`;
+    document.body.appendChild(link); link.click(); link.remove();
+  };
+
   window.securePortalBootstrap = async function securePortalBootstrap() {
     if (!window.supabase?.createClient) {
       cloudStatus('error', 'Security library failed to load');
