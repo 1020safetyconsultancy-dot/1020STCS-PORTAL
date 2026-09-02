@@ -721,6 +721,31 @@
     document.body.appendChild(link); link.click(); link.remove();
   };
 
+  function combineTrainingPages() {
+    const trainingPage = $('trainings');
+    const schedulePage = $('scheduleAdmin');
+    if (!trainingPage || !schedulePage) return;
+
+    const trainingButton = [...document.querySelectorAll('.nav button')]
+      .find(button => String(button.getAttribute('onclick') || '').includes("page('trainings'"));
+    if (trainingButton) trainingButton.innerHTML = '<span class="ico">🎓</span>Training';
+
+    const scheduleButton = [...document.querySelectorAll('.nav button')]
+      .find(button => String(button.getAttribute('onclick') || '').includes("page('scheduleAdmin'"));
+    scheduleButton?.remove();
+
+    const coursePanel = trainingPage.firstElementChild;
+    if (coursePanel) coursePanel.style.marginBottom = '22px';
+    const scheduleWrapper = document.createElement('div');
+    scheduleWrapper.setAttribute('data-roles', 'admin');
+    scheduleWrapper.className = 'combined-training-schedule';
+    while (schedulePage.firstChild) scheduleWrapper.appendChild(schedulePage.firstChild);
+    trainingPage.appendChild(scheduleWrapper);
+    schedulePage.remove();
+  }
+
+  combineTrainingPages();
+
   window.securePortalBootstrap = async function securePortalBootstrap() {
     if (!window.supabase?.createClient) {
       cloudStatus('error', 'Security library failed to load');
