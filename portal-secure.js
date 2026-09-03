@@ -4,6 +4,24 @@
   const EMPTY_DB = () => ({participants:[],certificates:[],trainings:[],requests:[],payments:[],schedules:[]});
   const RECORD_TYPES = ['participants','certificates','trainings','requests','payments','schedules'];
   const CLIENT_WRITABLE = new Set(['participants','requests','payments']);
+  const ALLOWED_ROLES = new Set(['admin','client','consultant']);
+  const PAGE_ROLES = Object.freeze({
+    dash: ['admin','client','consultant'],
+    clientPortal: ['client'],
+    participants: ['admin','consultant'],
+    trainings: ['admin','consultant'],
+    certificates: ['admin','client','consultant'],
+    requests: ['admin','consultant'],
+    clients: ['admin','consultant'],
+    services: ['admin'],
+    scheduleAdmin: ['admin'],
+    reports: ['admin','consultant'],
+    users: ['admin'],
+    backup: ['admin'],
+    settings: ['admin'],
+    payments: ['client'],
+    adminPayments: ['admin','consultant']
+  });
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const PAYMENT_PROOF_BUCKET = 'payment-proofs';
   const PAYMENT_PROOF_MAX_BYTES = 5 * 1024 * 1024;
@@ -35,6 +53,8 @@
   }
 
   function profileUser(profile) {
+    const normalizedRole = String(profile.role || '').trim().toLowerCase();
+    if (!ALLOWED_ROLES.has(normalizedRole)) throw new Error('This account has no valid portal role.');
     return {
       id: profile.user_id,
       user_id: profile.user_id,
@@ -43,7 +63,7 @@
       email: profile.email,
       company: profile.company || '',
       contact: profile.contact || '',
-      role: profile.role,
+      role: normalizedRole,
       active: profile.active !== false,
       created_at: profile.created_at
     };
@@ -51,6 +71,30 @@
 
   function recordKey(type, id) { return `${type}:${id}`; }
   function isStaff() { return current && (current.role === 'admin' || current.role === 'consultant'); }
+
+  function hasPageAccess(pageId) {
+    const allowed = PAGE_ROLES[String(pageId || '')];
+    return Boolean(current && allowed && allowed.includes(current.role));
+  }
+
+  function installRouteGuards() {
+    const originalPage = window.page;
+    window.role = () => current?.role || 'unauthenticated';
+    window.can = (...roles) => Boolean(current && roles.includes(current.role));
+    window.page = function securePage(pageId, button) {
+      if (!hasPageAccess(pageId)) {
+        if (current) {
+          const safePage = current.role === 'client' ? 'clientPortal' : 'dash';
+          if (pageId !== safePage && hasPageAccess(safePage)) return originalPage(safePage);
+        }
+        return;
+      }
+      return originalPage(pageId, button);
+    };
+    window.go = function secureGo(pageId) {
+      return window.page(pageId);
+    };
+  }
 
   function clearPortalMemory() {
     current = null;
@@ -147,13 +191,17 @@
         await portalSupabase.auth.signOut();
         throw new Error('This account is inactive. Please contact the administrator.');
       }
+      if (!ALLOWED_ROLES.has(String(profile.role || '').trim().toLowerCase())) {
+        await portalSupabase.auth.signOut();
+        throw new Error('This account does not have an authorized portal role.');
+      }
       current = profileUser(profile);
       await Promise.all([loadProfiles(), loadPortalRecords()]);
       cloudReady = true;
       $('loginScreen').style.display = 'none';
       applyPermissions();
       syncUser();
-      go('dash');
+      window.go('dash');
       render();
       cloudStatus('online', 'Secure online database connected');
     } catch (error) {
@@ -269,7 +317,8 @@
     event.preventDefault();
     const email = $('loginUser').value.trim().toLowerCase();
     const password = $('loginPass').value;
-    const selectedRole = document.querySelector('input[name="loginRole"]:checked')?.value || 'admin';
+    const selectedRole = document.querySelector('input[name="loginRole"]:checked')?.value;
+    if (!ALLOWED_ROLES.has(selectedRole)) return alert('Select your account type before signing in.');
     const submit = event.submitter;
     if (submit) submit.disabled = true;
     try {
@@ -745,6 +794,7 @@
   }
 
   combineTrainingPages();
+  installRouteGuards();
 
   window.securePortalBootstrap = async function securePortalBootstrap() {
     if (!window.supabase?.createClient) {
